@@ -3,6 +3,7 @@
 #include <stdio.h> // printf, FILE, fopen, fclose
 #include <string.h> // strcat
 #include <ctype.h> // toupper
+#include <limits.h> //
 // #include <assert.h> // assert
 
 #pragma region constants
@@ -31,6 +32,8 @@
 #define ATTR_VOLUME_LABEL 0x08  // Binary: 00001000
 #define ATTR_DIRECTORY   0x10  // Binary: 00010000
 #define ATTR_ARCHIVE     0x20  // Binary: 00100000
+
+#define BITS_PER_BYTE 8
 
 #pragma endregion
 
@@ -103,6 +106,13 @@ void locateAndParseRootDirectory(byte * a_pB_Data);
 Entry * generateEntry(byte * a_byteLocation);
 string formatFileNaming(byte * a_pB_Data, size_t a_Length);
 bool testPointer(byte * a_Ptr, size_t a_Length);
+bool isReadOnly(Entry * e);
+bool isHidden(Entry * e);
+bool isSystem(Entry * e);
+bool isVolumeLabel(Entry * e);
+bool isDirectory(Entry * e);
+bool isArchive(Entry * e);
+bool printBinary(void * a_Number, bool use_Prefix);
 #pragma endregion
 
 #pragma region main
@@ -356,32 +366,51 @@ Entry * generateEntry(byte * a_byteLocation)
     observeAndReport(a_byteLocation != NULL, "Error: a_byteLocation is null");
 
     // Allocate memory for entry
-    Entry * new_entry = (Entry *)malloc(sizeof(Entry));
-    observeAndReport(new_entry != NULL, "Error allocating memory for entry");
-    new_entry->is_directory = false;
+    Entry * e = (Entry *)malloc(sizeof(Entry));
+    observeAndReport(e != NULL, "Error allocating memory for entry");
+    e->is_directory = false;
     fprintf(stderr, "Allocated memory for entry\n");
 
     // Get filename
-    string formatted = formatFileNaming(a_byteLocation, ENTRY_FILENAME_LENGTH);
-    strncpy(new_entry->filename, formatted, ENTRY_FILENAME_LENGTH);
+    string formattedName = formatFileNaming(a_byteLocation, ENTRY_FILENAME_LENGTH);
+    strncpy(e->filename, formattedName, ENTRY_FILENAME_LENGTH);
 
     // Get extension
-    string formatted = formatFileNaming(a_byteLocation + ENTRY_EXTENSION_OFFSET, ENTRY_EXTENSION_LENGTH);
-    strncpy(new_entry->filename, formatted, ENTRY_EXTENSION_LENGTH);
-    fprintf(stderr, "Got extension, '%s'\n", new_entry->extension);
+    string formattedExtension = formatFileNaming(a_byteLocation + ENTRY_EXTENSION_OFFSET, ENTRY_EXTENSION_LENGTH);
+    strncpy(e->extension, formattedExtension, ENTRY_EXTENSION_LENGTH);
+    fprintf(stderr, "Got extension, '%s'\n", e->extension);
+
 
     // Get attributes
-    new_entry->attributes = a_byteLocation + ENTRY_ATTRIBUTES_OFFSET;
-    fprintf(stderr, "Got attributes, '%d'\n", new_entry->attributes);
-    if()
-
-
+    e->attributes = a_byteLocation + ENTRY_ATTRIBUTES_OFFSET;
+    fprintf(stderr, "Got attributes, '%#x'\n", e->attributes);
+    printBinary(e->attributes, false);
+    if (isDirectory(e)) e->is_directory = true;
 
     // Get first cluster
-    new_entry->first_cluster = a_byteLocation[26] | a_byteLocation[27] << 8;
-    fprintf(stderr, "Got first cluster, '%d'\n", new_entry->first_cluster);
+    e->first_cluster = a_byteLocation[26] | a_byteLocation[27] << 8;
+    fprintf(stderr, "Got first cluster, '%#x'\n", e->first_cluster);
+    printBinary(e->first_cluster, true);
 
+}
 
+bool printBinary(void * a_Number, bool use_Prefix)
+{
+    uint32_t size = sizeof(a_Number) * ((size_t)BITS_PER_BYTE);
+    uint32_t number = *((uint32_t *)a_Number); // Cast the void pointer to a uint32_t pointer (assuming the number is 32 bits
+    uint32_t mask = 1UL << (size - 1); // Set the mask to the highest bit
 
+    if (use_Prefix) printf("0b");
+    for (int i = 0; i < size; i++)
+    {
+        printf("%d", (number & mask) ? 1 : 0); // Check if the current bit is 1 or 0
+        mask >>= 1; // Move the mask one bit to the right
+    }
+    printf("\n");
+    return true;
+}
 
+bool isDirectory(Entry * e) {
+    observeAndReport(e != NULL, "Error: e is null, cannot check if directory");
+    return (e->attributes & ATTR_DIRECTORY);
 }
