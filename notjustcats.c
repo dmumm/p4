@@ -2,6 +2,7 @@
 #include <stdint.h> // uint8_t, uint16_t, uint32_t
 #include <stdio.h> // printf, FILE, fopen, fclose
 #include <string.h> // strcat
+#include <ctype.h> // toupper
 // #include <assert.h> // assert
 
 #pragma region constants
@@ -21,12 +22,14 @@
 #define ENTRY_FILENAME_LENGTH 8
 
 #define ENTRY_EXTENSION_OFFSET 8
+#define ENTRY_EXTENSION_LENGTH 3
 
 #define ENTRY_ATTRIBUTES_OFFSET 11
 
 #pragma endregion
 
 #pragma region typedefs
+typedef uint8_t Byte;
 typedef uint8_t * BytePtr;
 typedef int bool;
 typedef char * string;
@@ -91,6 +94,7 @@ BytePtr getBootSector(BytePtr a_pB_Data);
 void printData(BytePtr a_pB_Data, size_t a_n_Length);
 void locateAndParseRootDirectory(BytePtr a_pB_Data);
 Entry * generateEntry(BytePtr a_ByteLocation);
+string formatFileNaming(BytePtr a_pB_Data, size_t a_Length);
 #pragma endregion
 
 #pragma region main
@@ -239,7 +243,7 @@ void locateAndParseRootDirectory(BytePtr a_pB_Data)
     fprintf(stderr, "Located root directory\n");
 
     // Loop through root directory
-    while(i_Entry != 0x00)
+    while (i_Entry != 0x00)
     {
         fprintf(stderr, "In while loop\n");
         Entry * e = generateEntry(i_Entry);
@@ -252,7 +256,7 @@ void locateAndParseRootDirectory(BytePtr a_pB_Data)
 
         // Get first data sector
         int sec = (DATA_AREA_OFFSET + e->first_cluster - 2);
-        uint8_t *dataSec = a_pB_Data + (sec * SECTOR_SIZE);
+        uint8_t * dataSec = a_pB_Data + (sec * SECTOR_SIZE);
         fprintf(stderr, "Got first data sector\n");
 
         // Detect if e is a directory
@@ -277,22 +281,57 @@ void locateAndParseRootDirectory(BytePtr a_pB_Data)
 }
 
 /**
+ * @brief   Formats file name or extension to be uppercase and space padded
+ * @param a_pB_Data     The data to format, non-null terminated
+ * @param a_Length      The length of the data
+ * @return  The formatted data
+ */
+string formatFileNaming(BytePtr a_ByteLocation, size_t a_Length)
+{
+    observeAndReport(a_ByteLocation != NULL, "Error: a_ByteLocation is null");
+    fprintf(stderr, "a_Length: %zu\n", a_Length);
+    observeAndReport(a_Length == ENTRY_FILENAME_LENGTH || a_Length == ENTRY_EXTENSION_LENGTH, "Error: a_Length is not 8 or 3");
+    fprintf(stderr, "Formatting file name\n");
+    string formatted = (string)malloc(a_Length);
+    observeAndReport(formatted != NULL, "Error allocating memory for formatted file name");
+    fprintf(stderr, "Allocated memory for formatted file name\n");
+    for (size_t i = 0; i < a_Length; i++)
+    {
+        fprintf(stderr, "i: %zu\n", i);
+        if (a_ByteLocation[i] == '\0')
+        {
+            fprintf(stderr, "Found null terminator\n");
+            for (; i < a_Length; i++)
+            {
+                formatted[i] = 0x20;
+            }
+            break;
+        }
+        fprintf(stderr, "Converting to uppercase\n");
+        formatted[i] = toupper((Byte)a_ByteLocation[i]);
+    }
+    fprintf(stderr, "Formatted file name\n");
+    return formatted;
+}
+
+/**
  * @brief   Generates a entry from a byte location
  * @param a_ByteLocation    The byte location to generate the entry from
  * @return  A pointer to the generated entry
  */
 Entry * generateEntry(BytePtr a_ByteLocation)
 {
+    fprintf(stderr, "Generating entry\n");
     Entry * new_entry = (Entry *)malloc(sizeof(Entry));
     observeAndReport(new_entry != NULL, "Error allocating memory for entry");
     fprintf(stderr, "Allocated memory for entry\n");
+
     // Get filename
-    new_entry->filename = (char *)malloc(8);
-    for (int i = 0; i < 8; i++)
-    {
-        new_entry->filename[i] = a_ByteLocation[i];
-    }
-    fprintf(stderr, "Got filename, '%s'\n", new_entry->filename);
+    string formatted = formatFileNaming(a_ByteLocation, ENTRY_FILENAME_LENGTH);
+    fprintf(stderr, "Returned formatted file name\n");
+    strncpy(new_entry->filename, formatted, ENTRY_FILENAME_LENGTH);
+    fprintf(stderr, "Got filename, '%s'\n", new_entry->filename); //TODO: pad with spaces
+
     // Get extension
     for (int i = 0; i < 3; i++)
     {
