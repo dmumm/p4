@@ -298,7 +298,7 @@ string formatFileNaming(BytePtr a_ByteLocation, size_t a_Length)
     for (size_t i = 0; i < a_Length; i++)
     {
         fprintf(stderr, "i: %zu\n", i);
-        if (a_ByteLocation[i] == '\0')
+        if ((Byte)a_ByteLocation[i] == (Byte)'\0')
         {
             fprintf(stderr, "Found null terminator\n");
             for (; i < a_Length; i++)
@@ -321,29 +321,45 @@ string formatFileNaming(BytePtr a_ByteLocation, size_t a_Length)
  */
 Entry * generateEntry(BytePtr a_ByteLocation)
 {
-    fprintf(stderr, "Generating entry\n");
-    Entry * new_entry = (Entry *)malloc(sizeof(Entry));
-    observeAndReport(new_entry != NULL, "Error allocating memory for entry");
-    fprintf(stderr, "Allocated memory for entry\n");
+    // fprintf(stderr, "Generating entry\n");
+    // observeAndReport(a_ByteLocation != NULL, "Error: a_ByteLocation is null");
+    // Entry * new_entry = (Entry *)malloc(sizeof(Entry));
+    // observeAndReport(new_entry != NULL, "Error allocating memory for entry");
+    // fprintf(stderr, "Allocated memory for entry\n");
+    // Mock filename
+    uint8_t mockFilename[ENTRY_FILENAME_LENGTH] = { 't', 'e', 's', 't', '\0', '\0', '\0', '\0' };
 
-    // Get filename
-    string formatted = formatFileNaming(a_ByteLocation, ENTRY_FILENAME_LENGTH);
-    fprintf(stderr, "Returned formatted file name\n");
-    strncpy(new_entry->filename, formatted, ENTRY_FILENAME_LENGTH);
-    fprintf(stderr, "Got filename, '%s'\n", new_entry->filename); //TODO: pad with spaces
-
-    // Get extension
-    for (int i = 0; i < 3; i++)
-    {
-        new_entry->extension[i] = a_ByteLocation[i + ENTRY_EXTENSION_OFFSET];
+    // Print the original filename
+    printf("Original filename: ");
+    for (int i = 0; i < ENTRY_FILENAME_LENGTH; ++i) {
+        printf("%c", mockFilename[i] ? mockFilename[i] : ' ');
     }
-    fprintf(stderr, "Got extension, '%s'\n", new_entry->extension);
-    // Get attributes
-    new_entry->attributes = a_ByteLocation[ENTRY_ATTRIBUTES_OFFSET];
-    fprintf(stderr, "Got attributes, '%d'\n", new_entry->attributes);
-    // Get first cluster
-    new_entry->first_cluster = a_ByteLocation[26] | a_ByteLocation[27] << 8;
-    fprintf(stderr, "Got first cluster, '%d'\n", new_entry->first_cluster);
+    printf("\n");
+    // Get filename
+    string formatted = formatFileNaming(mockFilename, ENTRY_FILENAME_LENGTH);
+    fprintf(stderr, "Returned formatted file name\n");
+
+    // Print the formatted filename
+    printf("Formatted filename: ");
+    for (int i = 0; i < ENTRY_FILENAME_LENGTH; ++i) {
+        printf("%c", formatted[i]);
+    }
+    printf("\n");
+    // strncpy(new_entry->filename, formatted, ENTRY_FILENAME_LENGTH);
+    // fprintf(stderr, "Got filename, '%s'\n", new_entry->filename); //TODO: pad with spaces
+
+    // // Get extension
+    // for (int i = 0; i < 3; i++)
+    // {
+    //     new_entry->extension[i] = a_ByteLocation[i + ENTRY_EXTENSION_OFFSET];
+    // }
+    // fprintf(stderr, "Got extension, '%s'\n", new_entry->extension);
+    // // Get attributes
+    // new_entry->attributes = a_ByteLocation[ENTRY_ATTRIBUTES_OFFSET];
+    // fprintf(stderr, "Got attributes, '%d'\n", new_entry->attributes);
+    // // Get first cluster
+    // new_entry->first_cluster = a_ByteLocation[26] | a_ByteLocation[27] << 8;
+    // fprintf(stderr, "Got first cluster, '%d'\n", new_entry->first_cluster);
 
 
 
