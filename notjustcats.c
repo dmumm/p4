@@ -21,11 +21,16 @@
 
 #define ENTRY_FILENAME_OFFSET 0
 #define ENTRY_FILENAME_LENGTH 8
-
 #define ENTRY_EXTENSION_OFFSET 8
 #define ENTRY_EXTENSION_LENGTH 3
-
 #define ENTRY_ATTRIBUTES_OFFSET 11
+
+#define ATTR_READ_ONLY   0x01  // Binary: 00000001
+#define ATTR_HIDDEN      0x02  // Binary: 00000010
+#define ATTR_SYSTEM      0x04  // Binary: 00000100
+#define ATTR_VOLUME_LABEL 0x08  // Binary: 00001000
+#define ATTR_DIRECTORY   0x10  // Binary: 00010000
+#define ATTR_ARCHIVE     0x20  // Binary: 00100000
 
 #pragma endregion
 
@@ -265,48 +270,41 @@ byte * getBootSector(byte * a_pB_Data)
  */
 void locateAndParseRootDirectory(byte * a_pB_Data)
 {
-    fprintf(stderr, "Locating root directory\n");
-    // testPointer(a_pB_Data[ROOT_OFFSET + 1], SECTOR_SIZE);
-    g_pD_DiskImage->p_Root = a_pB_Data[ROOT_OFFSET];
-    Directory * i_Entry = g_pD_DiskImage->p_Root;
+    g_pD_DiskImage->p_Root = a_pB_Data + ROOT_OFFSET;
+    byte * i_Offset = g_pD_DiskImage->p_Root;
     fprintf(stderr, "Located root directory\n");
-    // testPointer(i_Entry, ENTRY_SIZE);
 
-    // Loop through root directory
-    while (i_Entry != 0x00)
+    while (i_Offset != 0x00)
     {
-        fprintf(stderr, "In while loop\n");
-        Entry * e = generateEntry(i_Entry);
-        observeAndReport(e != NULL, "Error generating entry");
+        Entry * i_EntryPtr = generateEntry(i_Offset);
+        observeAndReport(i_EntryPtr != NULL, "Error generating entry");
         fprintf(stderr, "Generated new directory\n");
 
-        e->filepath[0] = '/';
-        strcat(e->filepath, e->filename);
+        i_EntryPtr->filepath[0] = '/';
+        strcat(i_EntryPtr->filepath, i_EntryPtr->filename);
         fprintf(stderr, "Set file path\n");
 
         // Get first data sector
-        int sec = (DATA_AREA_OFFSET + e->first_cluster - 2);
+        int sec = (DATA_AREA_OFFSET + i_EntryPtr->first_cluster - 2);
         byte * dataSec = a_pB_Data + (sec * SECTOR_SIZE);
         fprintf(stderr, "Got first data sector\n");
 
-        // Detect if e is a directory
-        if (e->is_directory == 1)
+        // Detect if i_EntryPtr is a directory
+        if (i_EntryPtr->is_directory == 1)
         {
             // // handle directory
-            // handleDirectory(e, dataSec); //TODO
+            // handleDirectory(i_EntryPtr, dataSec); //TODO
         }
         else
         {
             // handle file
-            strcat(e->filepath, ".");
-            strcat(e->filepath, e->extension);
+            strcat(i_EntryPtr->filepath, ".");
+            strcat(i_EntryPtr->filepath, i_EntryPtr->extension);
 
             // // Get data
             // makeData(e, dataSec); //TODO
         }
-
-        // Iterate
-        g_pD_DiskImage->p_Root += ENTRY_SIZE;
+        i_Offset += ENTRY_SIZE;
     }
 }
 
@@ -356,29 +354,32 @@ Entry * generateEntry(byte * a_byteLocation)
 {
     fprintf(stderr, "Generating entry\n");
     observeAndReport(a_byteLocation != NULL, "Error: a_byteLocation is null");
+
+    // Allocate memory for entry
     Entry * new_entry = (Entry *)malloc(sizeof(Entry));
     observeAndReport(new_entry != NULL, "Error allocating memory for entry");
+    new_entry->is_directory = false;
     fprintf(stderr, "Allocated memory for entry\n");
 
     // Get filename
     string formatted = formatFileNaming(a_byteLocation, ENTRY_FILENAME_LENGTH);
-    fprintf(stderr, "Returned formatted file name\n");
-
     strncpy(new_entry->filename, formatted, ENTRY_FILENAME_LENGTH);
-    fprintf(stderr, "Got filename, '%s'\n", new_entry->filename); //TODO: pad with spaces
 
-    // // Get extension
-    // for (int i = 0; i < 3; i++)
-    // {
-    //     new_entry->extension[i] = a_byteLocation[i + ENTRY_EXTENSION_OFFSET];
-    // }
-    // fprintf(stderr, "Got extension, '%s'\n", new_entry->extension);
-    // // Get attributes
-    // new_entry->attributes = a_byteLocation[ENTRY_ATTRIBUTES_OFFSET];
-    // fprintf(stderr, "Got attributes, '%d'\n", new_entry->attributes);
-    // // Get first cluster
-    // new_entry->first_cluster = a_byteLocation[26] | a_byteLocation[27] << 8;
-    // fprintf(stderr, "Got first cluster, '%d'\n", new_entry->first_cluster);
+    // Get extension
+    string formatted = formatFileNaming(a_byteLocation + ENTRY_EXTENSION_OFFSET, ENTRY_EXTENSION_LENGTH);
+    strncpy(new_entry->filename, formatted, ENTRY_EXTENSION_LENGTH);
+    fprintf(stderr, "Got extension, '%s'\n", new_entry->extension);
+
+    // Get attributes
+    new_entry->attributes = a_byteLocation + ENTRY_ATTRIBUTES_OFFSET;
+    fprintf(stderr, "Got attributes, '%d'\n", new_entry->attributes);
+    if()
+
+
+
+    // Get first cluster
+    new_entry->first_cluster = a_byteLocation[26] | a_byteLocation[27] << 8;
+    fprintf(stderr, "Got first cluster, '%d'\n", new_entry->first_cluster);
 
 
 
