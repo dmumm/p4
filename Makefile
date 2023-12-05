@@ -7,9 +7,10 @@ RESET = \033[0m
 
 # Source and object files
 SRCS = $(wildcard *.c)
+TEMP_SRCS = $(wildcard *temp*.c)
 OFILES = $(SRCS:.c=.o)
 TEST = sorber_basic_test.c
-OFILES := $(filter-out $(TEST:.c=.o), $(OFILES))
+OFILES := $(filter-out $(TEMP_SRCS:.c=.o), $(OFILES))
 
 # Compiler and flags
 CC = gcc
@@ -18,7 +19,6 @@ CFLAGS = -Wall -g -O0 -fPIC
 else
 CFLAGS = -Wall -g -O0 -fPIC
 endif
-LDFLAGS = -shared
 NDEBUG_FLAG = -DNDEBUG
 
 INCLUDES = -I./
