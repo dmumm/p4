@@ -16,7 +16,9 @@
             "random": "c",
             "typeinfo": "c",
             "system_error": "c",
-            "sstream": "c"
+            "sstream": "c",
+            "type_traits": "c",
+            "cstdlib": "c"
         },
         "makefile.launchConfigurations": [
             {
