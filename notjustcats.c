@@ -392,29 +392,6 @@ Entry * generateEntry(byte * a_byteLocation)
     fprintf(stderr, "Got attributes, '%#x'\n", e->attributes);
     printBinary(e->attributes, 8, true);
 
-    // Test Case 1: uint8_t
-    printf("Test Case 1: uint8_t\n");
-    uint8_t small_number = 5;
-    printBinary(small_number, 8, true);
-    // Expected Output: 0b00000101
-
-    // Test Case 2: uint16_t
-    printf("\nTest Case 2: uint16_t\n");
-    uint16_t medium_number = 1024;
-    printBinary(medium_number, 16, false);
-    // Expected Output: 0000010000000000
-
-    // Test Case 3: uint32_t
-    printf("\nTest Case 3: uint32_t\n");
-    uint32_t large_number = 4294967295;
-    printBinary(large_number, 32, false);
-    // Expected Output: 11111111111111111111111111111111
-
-    // Test Case 4: uint64_t
-    printf("\nTest Case 4: uint64_t\n");
-    uint64_t very_large_number = 18446744073709551615ULL;
-    printBinary(very_large_number, 64, true);
-    // Expected Output: 0b1111111111111111111111111111111111111111111111111111111111111111
 
     if (isDirectory(e)) e->is_directory = true;
 
