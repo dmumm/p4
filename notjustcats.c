@@ -95,20 +95,26 @@ DiskImage * g_pD_DiskImage;
 
 #pragma region prototypes
 void observeAndReport(bool a_Condition, string a_Message);
+bool testPointer(byte * a_Ptr, size_t a_Length);
+
+bool printBinary(uint64_t a_Number, size_t bits, bool use_Prefix);
+bool printEntry(const Entry * e);
+void printData(byte * a_pB_Data, size_t a_n_Length);
+
+string formatFileNaming(byte * a_pB_Data, size_t a_Length);
+
 byte * openFile(char * a_Filename);
 byte * getBootSector(byte * a_pB_Data);
-void printData(byte * a_pB_Data, size_t a_n_Length);
 void locateAndParseRootDirectory(byte * a_pB_Data);
 Entry * generateEntry(byte * a_byteLocation);
-string formatFileNaming(byte * a_pB_Data, size_t a_Length);
-bool testPointer(byte * a_Ptr, size_t a_Length);
+void handleDirectory(Entry * a_directoryEntry, byte * a_sector);
+
 bool isReadOnly(Entry * e);
 bool isHidden(Entry * e);
 bool isSystem(Entry * e);
 bool isVolumeLabel(Entry * e);
 bool isDirectory(Entry * e);
 bool isArchive(Entry * e);
-bool printBinary(uint64_t a_Number, size_t bits, bool use_Prefix);
 #pragma endregion
 
 #pragma region main
@@ -277,14 +283,17 @@ byte * getBootSector(byte * a_pB_Data)
 void locateAndParseRootDirectory(byte * a_pB_Data)
 {
     g_pD_DiskImage->p_Root->head = a_pB_Data + ROOT_OFFSET;
-    byte * i_Offset = g_pD_DiskImage->p_Root->head;
+    byte * p_Root = g_pD_DiskImage->p_Root->head;
     fprintf(stderr, "Located root directory\n");
 
+    byte * i_Offset = p_Root;
     while (i_Offset != 0x00)
     {
         Entry * i_EntryPtr = generateEntry(i_Offset);
         observeAndReport(i_EntryPtr != NULL, "Error generating entry");
         fprintf(stderr, "Generated new entry\n");
+        printEntry(i_EntryPtr);
+
 
         // Get first data sector
         uint16_t first_data_sector_offset = (DATA_AREA_OFFSET + i_EntryPtr->first_cluster - 2);
@@ -292,10 +301,10 @@ void locateAndParseRootDirectory(byte * a_pB_Data)
         fprintf(stderr, "Got first data sector\n");
 
         // Detect if i_EntryPtr is a directory
-        if (i_EntryPtr->is_directory == 1)
+        if (i_EntryPtr->is_directory)
         {
-            // // handle directory
-            // handleDirectory(i_EntryPtr, dataSec); //TODO
+            // handle directory
+            handleDirectory(i_EntryPtr, dataSec);
         }
         else
         {
@@ -361,23 +370,16 @@ Entry * generateEntry(byte * a_byteLocation)
     Entry * e = (Entry *)malloc(sizeof(Entry));
     observeAndReport(e != NULL, "Error allocating memory for entry");
     e->is_directory = false;
-    fprintf(stderr, "Allocated memory for entry\n");
 
     // Get filename
     string formattedName = formatFileNaming(a_byteLocation, ENTRY_FILENAME_LENGTH);
-    fprintf(stderr, "Got file name, '%s'\n", formattedName);
     strncpy(e->filename, formattedName, ENTRY_FILENAME_LENGTH);
 
+    // Get filepath
     e->filepath = malloc(sizeof(char));
     e->filepath[0] = '/';
-    // Handle memory allocation error
-    // observeAndReport(e->filepath != NULL, "Error: i_EntryPtr->filepath is null");
-    // observeAndReport(e->filepath[0] != NULL, "Error: i_EntryPtr->filepath[0] is null");
-    fprintf(stderr, "Set filepath[0]: '%c'\n", e->filepath[0]);
-    assert(e->filepath[0] == '/' && "Error: i_EntryPtr->filepath is not '/'");
     observeAndReport(e->filepath[0] == '/', "Error: i_EntryPtr->filepath is not '/'");
     strcat(e->filepath, e->filename);
-    fprintf(stderr, "Set file path\n");
 
     // Get extension
     string formattedExtension = formatFileNaming(a_byteLocation + ENTRY_EXTENSION_OFFSET, ENTRY_EXTENSION_LENGTH);
@@ -397,11 +399,55 @@ Entry * generateEntry(byte * a_byteLocation)
 
     // Get first cluster
     e->first_cluster = a_byteLocation[26] | a_byteLocation[27] << 8;
-    fprintf(stderr, "Got first cluster, '%#x'\n", e->first_cluster);
 
     return e;
 
 }
+
+/**
+ * @brief   Handles a directory
+ * @param a_directoryEntry  The directory entry to handle
+ * @param a_sector           The sector to handle
+ */
+void handleDirectory(Entry * a_directoryEntry, byte * a_pDiskSector)
+{
+    // setup //TODO: this just goes back to the root directory, need to fix
+    uint8_t * first = a_pDiskSector + DIR_HANDLE_OFFSET;
+
+    // treat the first entry as if it is a root directory
+    while (*first != 0x00) {
+        // Get entry in root directory
+        Entry * newEntry = makeDirectory(first);
+        strcat(newEntry->filepath, entry->filepath);
+        strcat(newEntry->filepath, "/");
+        strcat(newEntry->filepath, newEntry->name);
+
+        // Check if entry is a directory
+        if (newEntry->directory == 1) {
+            // Get first data sector
+            uint8_t a_pDiskSector = (DATA_SEC_OFFSET + newEntry->firstLCluster - 2);
+            uint8_t * newSec = fData + (a_pDiskSector * SECTOR_SIZE);
+
+            // handle directory
+            handleDirectory(newEntry, newSec);
+        }
+        else {
+            // handle file ext
+            strcat(newEntry->filepath, ".");
+            strcat(newEntry->filepath, newEntry->ext);
+
+            // Get data sector
+            uint8_t a_pDiskSector = DATA_SEC_OFFSET + newEntry->firstLCluster - 2;
+            uint8_t * newSec = fData + (a_pDiskSector * SECTOR_SIZE);
+
+            makeData(newEntry, newSec);
+        }
+
+        // Iterate
+        first += ENTRY_SIZE;
+    }
+}
+
 
 bool printBinary(uint64_t a_Number, size_t bits, bool use_Prefix)
 {
@@ -422,5 +468,22 @@ bool printBinary(uint64_t a_Number, size_t bits, bool use_Prefix)
 
 bool isDirectory(Entry * e) {
     observeAndReport(e != NULL, "Error: e is null, cannot check if directory");
-    return (e->attributes & ATTR_DIRECTORY);
+    uint8_t result = (e->attributes & ATTR_DIRECTORY);
+    return (result > 0);
+}
+
+bool printEntry(const Entry * e) {
+    printf("\tFilepath: %s\n", e->filepath);
+    printf("\tFilename: ");
+    for (int i = 0; i < 8; i++) printf("%c", e->filename[i]);
+    printf("\n\tExtension: ");
+    for (int i = 0; i < 3; i++) printf("%c", e->extension[i]);
+    printf("\n\tAttributes:  %#x\n", e->attributes);
+    printf("\tFirst Cluster: %#x\n", e->first_cluster);
+    printf("\tSize: %u\n", e->size);
+    printf("\tIs Directory: %s\n", e->is_directory ? "Yes" : "No");
+    printf("\tDate - Created: %u, Accessed: %u, Modified: %u\n",
+           e->date.created, e->date.accessed, e->date.modified);
+    printf("\tTime - Created: %u, Accessed: %u, Modified: %u\n",
+           e->time.created, e->time.accessed, e->time.modified);
 }
