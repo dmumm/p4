@@ -12,7 +12,21 @@
             "string_view": "c",
             "initializer_list": "c",
             "ranges": "c",
-            "utility": "c"
-        }
+            "utility": "c",
+            "random": "c",
+            "typeinfo": "c",
+            "system_error": "c",
+            "sstream": "c"
+        },
+        "makefile.launchConfigurations": [
+            {
+                "cwd": "/home/dmumm/3220/p4",
+                "binaryPath": "/home/dmumm/3220/p4/notjustcats",
+                "binaryArgs": [
+                    "random.img",
+                    "./outputtest"
+                ]
+            }
+        ]
     }
 }

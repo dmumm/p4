@@ -4,9 +4,11 @@
 #include <string.h> // strcat
 #include <ctype.h> // toupper
 #include <limits.h> //
-// #include <assert.h> // assert
+#include <assert.h> // assert
 
 #pragma region constants
+
+#define ZERO 0
 
 #define FAT_COUNT_OFFSET 16
 
@@ -106,7 +108,7 @@ bool isSystem(Entry * e);
 bool isVolumeLabel(Entry * e);
 bool isDirectory(Entry * e);
 bool isArchive(Entry * e);
-bool printBinary(uint32_t a_Number, size_t bits, bool use_Prefix);
+bool printBinary(uint64_t a_Number, size_t bits, bool use_Prefix);
 #pragma endregion
 
 #pragma region main
@@ -274,19 +276,19 @@ byte * getBootSector(byte * a_pB_Data)
  */
 void locateAndParseRootDirectory(byte * a_pB_Data)
 {
-    g_pD_DiskImage->p_Root = a_pB_Data + ROOT_OFFSET;
-    byte * i_Offset = g_pD_DiskImage->p_Root;
+    g_pD_DiskImage->p_Root->head = a_pB_Data + ROOT_OFFSET;
+    byte * i_Offset = g_pD_DiskImage->p_Root->head;
     fprintf(stderr, "Located root directory\n");
 
     while (i_Offset != 0x00)
     {
         Entry * i_EntryPtr = generateEntry(i_Offset);
         observeAndReport(i_EntryPtr != NULL, "Error generating entry");
-        fprintf(stderr, "Generated new directory\n");
+        fprintf(stderr, "Generated new entry\n");
 
         // Get first data sector
-        int sec = (DATA_AREA_OFFSET + i_EntryPtr->first_cluster - 2);
-        byte * dataSec = a_pB_Data + (sec * SECTOR_SIZE);
+        uint16_t first_data_sector_offset = (DATA_AREA_OFFSET + i_EntryPtr->first_cluster - 2);
+        byte * dataSec = a_pB_Data + (first_data_sector_offset * SECTOR_SIZE);
         fprintf(stderr, "Got first data sector\n");
 
         // Detect if i_EntryPtr is a directory
@@ -363,13 +365,17 @@ Entry * generateEntry(byte * a_byteLocation)
 
     // Get filename
     string formattedName = formatFileNaming(a_byteLocation, ENTRY_FILENAME_LENGTH);
+    fprintf(stderr, "Got file name, '%s'\n", formattedName);
     strncpy(e->filename, formattedName, ENTRY_FILENAME_LENGTH);
 
+    e->filepath = malloc(sizeof(char));
     e->filepath[0] = '/';
+    // Handle memory allocation error
     // observeAndReport(e->filepath != NULL, "Error: i_EntryPtr->filepath is null");
     // observeAndReport(e->filepath[0] != NULL, "Error: i_EntryPtr->filepath[0] is null");
-    fprintf(stderr, "Set file path\n");
-    observeAndReport(e->filepath == "/", "Error: i_EntryPtr->filepath is not '/'");
+    fprintf(stderr, "Set filepath[0]: '%c'\n", e->filepath[0]);
+    assert(e->filepath[0] == '/' && "Error: i_EntryPtr->filepath is not '/'");
+    observeAndReport(e->filepath[0] == '/', "Error: i_EntryPtr->filepath is not '/'");
     strcat(e->filepath, e->filename);
     fprintf(stderr, "Set file path\n");
 
@@ -377,26 +383,58 @@ Entry * generateEntry(byte * a_byteLocation)
     string formattedExtension = formatFileNaming(a_byteLocation + ENTRY_EXTENSION_OFFSET, ENTRY_EXTENSION_LENGTH);
     strncpy(e->extension, formattedExtension, ENTRY_EXTENSION_LENGTH);
     fprintf(stderr, "Got extension, '%s'\n", e->extension);
+    strcat(e->filepath, ".");
+    strcat(e->filepath, e->extension);
 
 
     // Get attributes
     e->attributes = a_byteLocation + ENTRY_ATTRIBUTES_OFFSET;
     fprintf(stderr, "Got attributes, '%#x'\n", e->attributes);
+    printBinary(e->attributes, 8, true);
+
+    // Test Case 1: uint8_t
+    printf("Test Case 1: uint8_t\n");
+    uint8_t small_number = 5;
+    printBinary(small_number, 8, true);
+    // Expected Output: 0b00000101
+
+    // Test Case 2: uint16_t
+    printf("\nTest Case 2: uint16_t\n");
+    uint16_t medium_number = 1024;
+    printBinary(medium_number, 16, false);
+    // Expected Output: 0000010000000000
+
+    // Test Case 3: uint32_t
+    printf("\nTest Case 3: uint32_t\n");
+    uint32_t large_number = 4294967295;
+    printBinary(large_number, 32, false);
+    // Expected Output: 11111111111111111111111111111111
+
+    // Test Case 4: uint64_t
+    printf("\nTest Case 4: uint64_t\n");
+    uint64_t very_large_number = 18446744073709551615ULL;
+    printBinary(very_large_number, 64, true);
+    // Expected Output: 0b1111111111111111111111111111111111111111111111111111111111111111
+
     if (isDirectory(e)) e->is_directory = true;
 
     // Get first cluster
     e->first_cluster = a_byteLocation[26] | a_byteLocation[27] << 8;
     fprintf(stderr, "Got first cluster, '%#x'\n", e->first_cluster);
 
+    return e;
+
 }
 
-bool printBinary(uint32_t a_Number, size_t bits, bool use_Prefix)
+bool printBinary(uint64_t a_Number, size_t bits, bool use_Prefix)
 {
-    unsigned int size = sizeof(a_Number) * ((size_t)BITS_PER_BYTE);
-    unsigned int mask = 1UL << (size - 1); // Set the mask to the highest bit
+    const size_t max_size = sizeof(uint64_t) * BITS_PER_BYTE;
+    if (bits == ZERO || bits > max_size) return false;
+
+    unsigned int mask = 1UL << (bits - 1); // Set the mask to the highest bit of the specified range
 
     if (use_Prefix) printf("0b");
-    for (int i = 0; i < size; i++)
+    for (size_t i = 0; i < bits; i++)
     {
         printf("%d", (a_Number & mask) ? 1 : 0); // Check if the current bit is 1 or 0
         mask >>= 1; // Move the mask one bit to the right
