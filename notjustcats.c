@@ -37,26 +37,20 @@
 
 #pragma endregion
 
-#pragma region typedefs
+#pragma region typedefs_structs
+
 typedef uint8_t byte;
 
 typedef enum { false, true } bool;
 typedef char * string;
 
-typedef struct TimeStamp TimeStamp;
-typedef struct Entry Entry;
-typedef struct Directory Directory;
-typedef struct BootSector BootSector;
-typedef struct DiskImage DiskImage;
-#pragma endregion
-
-#pragma region structs
-struct TimeStamp {
+typedef struct TimeStamp {
     uint16_t created;
     uint16_t accessed;
     uint16_t modified;
-};
-struct Entry {
+} TimeStamp;
+
+typedef struct Entry {
     string filepath;
     byte  filename[8];
     byte  extension[3];
@@ -67,28 +61,28 @@ struct Entry {
     bool     is_directory;
     TimeStamp date;
     TimeStamp time;
-};
+} Entry;
 
-struct Directory {
+typedef struct Directory {
     Entry * head;
     Entry * tail;
-};
+} Directory;
 
-struct BootSector {
+typedef struct BootSector {
     size_t n_Fats;
     size_t n_RootEntries;
     size_t n_Sectors;
     size_t n_SectorsPerFat;
-};
+} BootSector;
 
-struct DiskImage {
+typedef struct DiskImage {
     BootSector * p_BootSector;
     byte ** p_FatTables;
     Directory * p_Root;
     byte * p_DataArea;
     size_t bytes;
+} DiskImage;
 
-};
 #pragma endregion
 
 #pragma region globals
@@ -112,7 +106,7 @@ bool isSystem(Entry * e);
 bool isVolumeLabel(Entry * e);
 bool isDirectory(Entry * e);
 bool isArchive(Entry * e);
-bool printBinary(void * a_Number, bool use_Prefix);
+bool printBinary(uint32_t a_Number, size_t bits, bool use_Prefix);
 #pragma endregion
 
 #pragma region main
@@ -290,10 +284,6 @@ void locateAndParseRootDirectory(byte * a_pB_Data)
         observeAndReport(i_EntryPtr != NULL, "Error generating entry");
         fprintf(stderr, "Generated new directory\n");
 
-        i_EntryPtr->filepath[0] = '/';
-        strcat(i_EntryPtr->filepath, i_EntryPtr->filename);
-        fprintf(stderr, "Set file path\n");
-
         // Get first data sector
         int sec = (DATA_AREA_OFFSET + i_EntryPtr->first_cluster - 2);
         byte * dataSec = a_pB_Data + (sec * SECTOR_SIZE);
@@ -375,6 +365,14 @@ Entry * generateEntry(byte * a_byteLocation)
     string formattedName = formatFileNaming(a_byteLocation, ENTRY_FILENAME_LENGTH);
     strncpy(e->filename, formattedName, ENTRY_FILENAME_LENGTH);
 
+    e->filepath[0] = '/';
+    // observeAndReport(e->filepath != NULL, "Error: i_EntryPtr->filepath is null");
+    // observeAndReport(e->filepath[0] != NULL, "Error: i_EntryPtr->filepath[0] is null");
+    fprintf(stderr, "Set file path\n");
+    observeAndReport(e->filepath == "/", "Error: i_EntryPtr->filepath is not '/'");
+    strcat(e->filepath, e->filename);
+    fprintf(stderr, "Set file path\n");
+
     // Get extension
     string formattedExtension = formatFileNaming(a_byteLocation + ENTRY_EXTENSION_OFFSET, ENTRY_EXTENSION_LENGTH);
     strncpy(e->extension, formattedExtension, ENTRY_EXTENSION_LENGTH);
@@ -384,26 +382,23 @@ Entry * generateEntry(byte * a_byteLocation)
     // Get attributes
     e->attributes = a_byteLocation + ENTRY_ATTRIBUTES_OFFSET;
     fprintf(stderr, "Got attributes, '%#x'\n", e->attributes);
-    printBinary(e->attributes, false);
     if (isDirectory(e)) e->is_directory = true;
 
     // Get first cluster
     e->first_cluster = a_byteLocation[26] | a_byteLocation[27] << 8;
     fprintf(stderr, "Got first cluster, '%#x'\n", e->first_cluster);
-    printBinary(e->first_cluster, true);
 
 }
 
-bool printBinary(void * a_Number, bool use_Prefix)
+bool printBinary(uint32_t a_Number, size_t bits, bool use_Prefix)
 {
-    uint32_t size = sizeof(a_Number) * ((size_t)BITS_PER_BYTE);
-    uint32_t number = *((uint32_t *)a_Number); // Cast the void pointer to a uint32_t pointer (assuming the number is 32 bits
-    uint32_t mask = 1UL << (size - 1); // Set the mask to the highest bit
+    unsigned int size = sizeof(a_Number) * ((size_t)BITS_PER_BYTE);
+    unsigned int mask = 1UL << (size - 1); // Set the mask to the highest bit
 
     if (use_Prefix) printf("0b");
     for (int i = 0; i < size; i++)
     {
-        printf("%d", (number & mask) ? 1 : 0); // Check if the current bit is 1 or 0
+        printf("%d", (a_Number & mask) ? 1 : 0); // Check if the current bit is 1 or 0
         mask >>= 1; // Move the mask one bit to the right
     }
     printf("\n");
