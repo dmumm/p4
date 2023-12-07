@@ -6,7 +6,6 @@
 #include <limits.h> //
 #include <assert.h> // assert
 
-#pragma region constants
 
 #define ZERO 0
 #define BITS_PER_BYTE 8
@@ -95,9 +94,7 @@
 #define ATTR_ARCHIVE     0x20  // Binary: 00100000
 
 
-#pragma endregion
 
-#pragma region typedefs_structs
 
 typedef uint8_t byte;
 
@@ -142,18 +139,14 @@ typedef struct DiskImage {
     size_t bytes;
 } DiskImage;
 
-#pragma endregion
 
-#pragma region globals
 
 
 
 // Directory * g_pD_Root;
 string g_ImageData;
 DiskImage * g_Disk;
-#pragma endregion
 
-#pragma region prototypes
 void observeAndReport(bool a_Condition, string a_Message);
 bool testPointer(byte * a_Ptr, size_t a_Length);
 
@@ -178,9 +171,7 @@ bool isSystem(const Entry * const e);
 bool isVolumeLabel(const Entry * const e);
 bool isDirectory(const Entry * const e);
 bool isArchive(const Entry * const e);
-#pragma endregion
 
-#pragma region main
 /**
  * @brief Takes a file system image and outputs the files and directories
 */
@@ -216,9 +207,7 @@ int main(int argc, char * argv[])
 
     return(EXIT_SUCCESS);
 }
-#pragma endregion
 
-#pragma region utility functions
 /**
  * @brief Custom assert function
  * @param a_Condition   The condition to check
@@ -324,7 +313,6 @@ string formatFileNaming(byte * a_byteLocation, size_t a_Length)
     return formatted;
 }
 
-#pragma endregion
 
 /**
  * Combines a big byte and a little byte to form a 16-bit integer.
