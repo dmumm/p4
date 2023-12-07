@@ -6,6 +6,8 @@
 #include <limits.h> //
 #include <assert.h> // assert
 
+#define SPACE_CHAR 0x20
+#define DOT_CHAR 0x2E
 
 #define ZERO 0
 #define BITS_PER_BYTE 8
@@ -90,10 +92,12 @@
 
 #define FILENAME_ENDED 0x00
 #define FILENAME_DELETED 0xE5
+#define FILENAME_SELF_DIRECTORY DOT_CHAR
+#define FILENAME_PARENT_DIRECTORY 0x2E2E
+
 
 #define DELETED_ENTRY_CLUSTER_LABEL 0x000
 
-#define SPACE 0x20
 
 #define DIR_HANDLE_OFFSET 64 //TODO: figure out what this is
 #define FIRST_DATA_SECTOR_NUM 33 //TODO: figure out what this is
@@ -132,8 +136,8 @@ typedef struct TimeStamp {
 
 typedef struct Entry {
     string filepath;
-    byte_ptr  filename[8];
-    byte_ptr  extension[3];
+    byte  filename[8];
+    byte  extension[3];
     byte  attributes;
     // byte  reserved[10];
     size_t depth;
@@ -185,7 +189,7 @@ void parseFileSystem(string a_pB_Data);
 void handleDirectory(Entry * a_ParentEntry, byte_ptr a_sector, size_t depth, bool a_ParentDeleted);
 void makeData(Entry * a_Entry, byte * a_pDiskSector);
 
-Entry * generateEntry(Entry * a_ParentEntry, byte * a_byteLocation, size_t depth, bool a_ParentDeleted);
+Entry * generateEntry(Entry * a_ParentEntry, byte_ptr a_byteLocation, size_t depth, bool a_ParentDeleted);
 
 
 bool isReadOnly(const Entry * const e);
@@ -309,7 +313,7 @@ void printData(byte_ptr a_pB_Data, byte_num a_n_Length)
 
 /**
  * @brief   Formats file name or extension to be uppercase and space padded
- * @param a_pB_Data     The data to format, non-null terminated
+ * @param a_byteLocation     The data to format, non-null terminated
  * @param a_Length      The length of the data
  * @return  The formatted data
  */
@@ -317,6 +321,7 @@ string formatFileNaming(byte_ptr a_byteLocation, byte_num a_Length)
 {
     observeAndReport(a_byteLocation != NULL, "Error: a_byteLocation is null");
     observeAndReport(a_Length == ENTRY_FILENAME_BYTES || a_Length == ENTRY_EXTENSION_BYTES, "Error: a_Length is not 8 or 3");
+    observeAndReport(a_byteLocation == DOT_CHAR, "Error: a_byteLocation is a dot");
 
     string formatted = (string)malloc(a_Length);
     observeAndReport(formatted != NULL, "Error allocating memory for formatted file name");
@@ -324,14 +329,14 @@ string formatFileNaming(byte_ptr a_byteLocation, byte_num a_Length)
     size_t i;
     for (i = 0; i < a_Length; i++)
     {
-        if (a_byteLocation[i] == FILENAME_ENDED) { break; }
-        formatted[i] = toupper(a_byteLocation[i]); // might be trouble, was (unsigned char)
+        if ((unsigned char)a_byteLocation[i] == SPACE_CHAR) { break; }
+        formatted[i] = toupper((unsigned char)a_byteLocation[i]); // might be trouble, was (unsigned char)
     }
 
     // Pad with spaces if i < a_Length
     for (; i < a_Length; i++)
     {
-        formatted[i] = SPACE;
+        formatted[i] = SPACE_CHAR;
     }
 
     return formatted;
@@ -477,7 +482,7 @@ void handleDirectory(Entry * a_ParentEntry, byte_ptr a_dataSector, size_t depth,
  * @param a_byteLocation    The byte location to generate the entry from
  * @return  A pointer to the generated entry
  */
-Entry * generateEntry(Entry * a_ParentEntry, byte * a_byteLocation, size_t depth, bool a_ParentDeleted)
+Entry * generateEntry(Entry * a_ParentEntry, byte_ptr a_byteLocation, size_t depth, bool a_ParentDeleted)
 {
     observeAndReport(a_byteLocation != NULL, "Error: a_byteLocation is null");
 
@@ -499,7 +504,7 @@ Entry * generateEntry(Entry * a_ParentEntry, byte * a_byteLocation, size_t depth
     strncpy(e->filename, formattedName, ENTRY_FILENAME_BYTES);
     strcat(e->filepath, e->filename);
 
-    if (formattedExtension[0] != SPACE)
+    if (formattedExtension[0] != SPACE_CHAR)
     {
         strncpy(e->extension, formattedExtension, ENTRY_EXTENSION_BYTES);
         strcat(e->filepath, ".");
