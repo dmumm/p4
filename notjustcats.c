@@ -120,7 +120,7 @@ typedef size_t entry_num;
 
 typedef enum { false, true } bool;
 typedef byte sector[BYTES_PER_SECTOR];
-typedef char * string;
+typedef unsigned char * string;
 typedef uint16_t fat_entry;
 
 
@@ -184,6 +184,9 @@ byte_ptr getBootSector(string a_pB_Data);
 void parseFileSystem(string a_pB_Data);
 void handleDirectory(Entry * a_ParentEntry, byte_ptr a_sector, size_t depth, bool a_ParentDeleted);
 void makeData(Entry * a_Entry, byte * a_pDiskSector);
+
+Entry * generateEntry(Entry * a_ParentEntry, byte * a_byteLocation, size_t depth, bool a_ParentDeleted);
+
 
 bool isReadOnly(const Entry * const e);
 bool isHidden(const Entry * const e);
@@ -356,6 +359,8 @@ byte_ptr getBootSector(string a_pB_Data)
 {
     bool check1 = a_pB_Data[BOOT_SIGNATURE_OFFSET1] == BOOT_SIGNATURE_CONSTANT1;
     bool check2 = a_pB_Data[BOOT_SIGNATURE_OFFSET2] == BOOT_SIGNATURE_CONSTANT2;
+    fprintf(stderr, "Boot Signature Byte 1 is %02X\n", a_pB_Data[BOOT_SIGNATURE_OFFSET1]);
+    fprintf(stderr, "Boot Signature Byte 2 is %02X\n", a_pB_Data[BOOT_SIGNATURE_OFFSET2]);
     observeAndReport(check1, "Error: Boot Signature Byte 1 is not 0x55");
     observeAndReport(check2, "Error: Boot Signature Byte 2 is not 0xAA");
 
@@ -390,7 +395,7 @@ byte_ptr getBootSector(string a_pB_Data)
     g_Disk->p_BootSector->n_BytesPerSector = bytes_per_sector;
     g_Disk->p_BootSector->n_SectorsPerCluster = sectors_per_cluster;
 
-    return g_Disk->p_BootSector;
+    return (byte_ptr)(g_Disk->p_BootSector);
 }
 
 /**
@@ -410,7 +415,7 @@ void parseFileSystem(string a_pB_Data)
     byte_ptr i_entry = g_Disk->p_Root;
     while (i_entry != ENTRY_FREE_AND_LAST)
     {
-        Entry * i_EntryPtr = generateEntry(NULL, i_entry , depth);
+        Entry * i_EntryPtr = generateEntry(NULL, i_entry, depth, false);
         observeAndReport(i_EntryPtr != NULL, "Error generating entry");
         printEntry(i_EntryPtr);
 
@@ -446,9 +451,9 @@ void handleDirectory(Entry * a_ParentEntry, byte_ptr a_dataSector, size_t depth,
 {
     depth++;
     byte_ptr i_childEntry = a_dataSector;
-    while (*i_childEntry != ENTRY_FREE_AND_LAST) //TODO: need dereference?
+    while (i_childEntry != ENTRY_FREE_AND_LAST) //TODO: need dereference?
     {
-        Entry * i_childEntry = generateEntry(a_ParentEntry, i_childEntry, depth);
+        Entry * i_childEntry = generateEntry(a_ParentEntry, i_childEntry, depth, parentDeleted);
         strcat(i_childEntry->filepath, a_ParentEntry->filepath);
 
         sector_num i_first_sector_num = FIRST_DATA_SECTOR_NUM + i_childEntry->first_cluster - CLUSTER_NORMAL_MIN;
@@ -472,7 +477,7 @@ void handleDirectory(Entry * a_ParentEntry, byte_ptr a_dataSector, size_t depth,
  * @param a_byteLocation    The byte location to generate the entry from
  * @return  A pointer to the generated entry
  */
-Entry * generateEntry(Entry * a_ParentEntry, byte * a_byteLocation, size_t depth)
+Entry * generateEntry(Entry * a_ParentEntry, byte * a_byteLocation, size_t depth, bool a_ParentDeleted)
 {
     observeAndReport(a_byteLocation != NULL, "Error: a_byteLocation is null");
 
