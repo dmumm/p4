@@ -29,7 +29,7 @@ INCLUDES = -I./
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 # Linking to create shared library
-notjustcats: $(OFILES)
+notjustcats: $(OFILES) 
 	@echo "$(GREEN)Linking $@...$(RESET)"
 	$(CC) $(LDFLAGS) -o $@ $(OFILES)
 
