@@ -6,10 +6,19 @@
 #include <limits.h> //
 #include <assert.h> // assert
 
-#define SPACE_CHAR 0x20
+#define NULL_CHAR '\0'
+#define SPACE_CHAR ' '
+#define SPACE_HEX 0x20
 #define DOT_CHAR 0x2E
+#define DOUBLE_DOT_CHAR 0x2E
+#define FORWARD_SLASH_CHAR 0x2F
+#define FORWARD_SLASH_STRING "/"
+
+
+
 
 #define ZERO 0
+#define DIRECTORY_FILE_SIZE ZERO
 #define BITS_PER_BYTE 8
 #define BYTES_PER_SECTOR 512
 
@@ -93,7 +102,7 @@
 #define FILENAME_ENDED 0x00
 #define FILENAME_DELETED 0xE5
 #define FILENAME_SELF_DIRECTORY DOT_CHAR
-#define FILENAME_PARENT_DIRECTORY 0x2E2E
+#define FILENAME_PARENT_DIRECTORY DOUBLE_DOT_CHAR
 
 
 #define DELETED_ENTRY_CLUSTER_LABEL 0x000
@@ -109,6 +118,7 @@
 #define ATTR_VOLUME_LABEL 0x08  // Binary: 00001000
 #define ATTR_DIRECTORY   0x10  // Binary: 00010000
 #define ATTR_ARCHIVE     0x20  // Binary: 00100000
+#define ATTR_ROOT     0x80  // Binary: 10000000
 
 
 
@@ -162,6 +172,7 @@ typedef struct DiskImage {
     BootSector * p_BootSector;
     byte_ptr * p_FatTables;
     byte_ptr p_Root;
+    Entry * p_RootEntry;
     byte_ptr p_DataArea;
     size_t bytes;
 } DiskImage;
@@ -187,7 +198,7 @@ string openFile(string a_Filename);
 byte_ptr getBootSector(string a_pB_Data);
 void parseFileSystem(string a_pB_Data);
 void handleDirectory(Entry * a_ParentEntry, byte_ptr a_sector, size_t depth, bool a_ParentDeleted);
-void makeData(Entry * a_Entry, byte * a_pDiskSector);
+void makeData(Entry * a_Entry, string a_pDiskSector);
 
 Entry * generateEntry(Entry * a_ParentEntry, byte_ptr a_byteLocation, size_t depth, bool a_ParentDeleted);
 
@@ -321,7 +332,7 @@ string formatFileNaming(byte_ptr a_byteLocation, byte_num a_Length)
 {
     observeAndReport(a_byteLocation != NULL, "Error: a_byteLocation is null");
     observeAndReport(a_Length == ENTRY_FILENAME_BYTES || a_Length == ENTRY_EXTENSION_BYTES, "Error: a_Length is not 8 or 3");
-    observeAndReport(a_byteLocation == DOT_CHAR, "Error: a_byteLocation is a dot");
+    observeAndReport(a_byteLocation != DOT_CHAR, "Error: a_byteLocation is a dot");
 
     string formatted = (string)malloc(a_Length);
     observeAndReport(formatted != NULL, "Error allocating memory for formatted file name");
@@ -329,7 +340,7 @@ string formatFileNaming(byte_ptr a_byteLocation, byte_num a_Length)
     size_t i;
     for (i = 0; i < a_Length; i++)
     {
-        if ((unsigned char)a_byteLocation[i] == SPACE_CHAR) { break; }
+        if (a_byteLocation + i == SPACE_CHAR) { break; }
         formatted[i] = toupper((unsigned char)a_byteLocation[i]); // might be trouble, was (unsigned char)
     }
 
@@ -415,33 +426,48 @@ void parseFileSystem(string a_pB_Data)
     getBootSector(g_ImageData);
     observeAndReport(g_Disk->p_BootSector != NULL, "Error: g_Disk->p_BootSector is null");
 
+    g_Disk->p_RootEntry = (Entry *)malloc(sizeof(Entry));
+    observeAndReport(g_Disk->p_RootEntry != NULL, "Error allocating memory for root directory entry");
+
+    memset(g_Disk->p_RootEntry->filename, NULL, ENTRY_FILENAME_BYTES);
+    memset(g_Disk->p_RootEntry->extension, NULL, ENTRY_EXTENSION_BYTES);
+    g_Disk->p_RootEntry->filepath = strdup(FORWARD_SLASH_STRING);
+    g_Disk->p_RootEntry->depth = depth;
+    g_Disk->p_RootEntry->first_cluster = CLUSTER_ROOT;
+    g_Disk->p_RootEntry->size = DIRECTORY_FILE_SIZE;
+    g_Disk->p_RootEntry->deleted = false;
+    g_Disk->p_RootEntry->attributes = ATTR_ROOT | ATTR_DIRECTORY | ATTR_SYSTEM;
+    g_Disk->p_RootEntry->data = NULL;
+
     g_Disk->p_Root = a_pB_Data + root_offset;
+    byte_ptr i_child = g_Disk->p_Root;
 
-    byte_ptr i_entry = g_Disk->p_Root;
-    while (i_entry != ENTRY_FREE_AND_LAST)
-    {
-        Entry * i_EntryPtr = generateEntry(NULL, i_entry, depth, false);
-        observeAndReport(i_EntryPtr != NULL, "Error generating entry");
-        printEntry(i_EntryPtr);
+    handleDirectory(g_Disk->p_RootEntry, i_child, depth, false);
 
-        strcat(i_EntryPtr->filepath, ".");
-        strcat(i_EntryPtr->filepath, i_EntryPtr->extension);
-
-        sector_num first_data_sector_num = FIRST_DATA_SECTOR_NUM + i_EntryPtr->first_cluster - CLUSTER_NORMAL_MIN;
-        byte_num first_data_sector_offset = first_data_sector_num * SECTOR_SIZE;
-        byte_ptr first_data_sector = a_pB_Data + first_data_sector_offset;
-
-        // Detect if i_EntryPtr is a directory
-        if (isDirectory(i_EntryPtr))
-        {
-            handleDirectory(i_EntryPtr, first_data_sector, depth, false);
-            i_entry += ENTRY_SIZE;
-            continue;
-        }
-
-        makeData(i_EntryPtr, first_data_sector);
-        i_entry += ENTRY_SIZE;
-    }
+    // while (i_child != ENTRY_FREE_AND_LAST)
+    // {
+    //     Entry * i_childEntry = generateEntry(g_Disk->p_RootEntry, i_child, depth, false);
+    //     observeAndReport(i_childEntry != NULL, "Error generating entry");
+    //     printEntry(i_childEntry);
+    //
+    //     strcat(i_childEntry->filepath, ".");
+    //     strcat(i_childEntry->filepath, i_childEntry->extension);
+    //
+    //     sector_num first_data_sector_num = FIRST_DATA_SECTOR_NUM + i_childEntry->first_cluster - CLUSTER_NORMAL_MIN;
+    //     byte_num first_data_sector_offset = first_data_sector_num * SECTOR_SIZE;
+    //     byte_ptr first_data_sector = a_pB_Data + first_data_sector_offset;
+    //
+    //     // Detect if i_childEntry is a directory
+    //     if (isDirectory(i_childEntry))
+    //     {
+    //         handleDirectory(i_childEntry, first_data_sector, depth, false);
+    //         i_child += ENTRY_SIZE;
+    //         continue;
+    //     }
+    //
+    //     makeData(i_childEntry, first_data_sector);
+    //     i_child += ENTRY_SIZE;
+    // }
 }
 
 
@@ -455,10 +481,22 @@ void parseFileSystem(string a_pB_Data)
 void handleDirectory(Entry * a_ParentEntry, byte_ptr a_dataSector, size_t depth, bool parentDeleted)
 {
     depth++;
-    byte_ptr i_childEntry = a_dataSector;
-    while (i_childEntry != ENTRY_FREE_AND_LAST) //TODO: need dereference?
+    size_t entry_count = ZERO;
+    byte_ptr i_child = a_dataSector;
+    while (depth <= 1 && entry_count < g_Disk->p_BootSector->n_RootEntries)
     {
-        Entry * i_childEntry = generateEntry(a_ParentEntry, i_childEntry, depth, parentDeleted);
+        Entry * i_childEntry = generateEntry(a_ParentEntry, i_child, depth, parentDeleted);
+
+        if (i_childEntry->filename == ENTRY_FREE_AND_LAST)
+        {
+            free(i_childEntry->filepath);
+            free(i_childEntry->filename);
+            free(i_childEntry->extension);
+            free(i_childEntry->filepath);
+            free(i_childEntry);
+            break;
+        }
+
         strcat(i_childEntry->filepath, a_ParentEntry->filepath);
 
         sector_num i_first_sector_num = FIRST_DATA_SECTOR_NUM + i_childEntry->first_cluster - CLUSTER_NORMAL_MIN;
@@ -468,55 +506,80 @@ void handleDirectory(Entry * a_ParentEntry, byte_ptr a_dataSector, size_t depth,
         if (isDirectory(i_childEntry))
         {
             handleDirectory(i_childEntry, i_first_sector, depth, false);
+            entry_count++;
             i_childEntry += ENTRY_SIZE;
             continue;
         }
 
         makeData(i_childEntry, i_first_sector);
-        i_childEntry += ENTRY_SIZE;
+        i_child += ENTRY_SIZE;
+        entry_count++;
+        printEntry(i_childEntry);
     }
 }
 
 /**
- * @brief   Generates a entry from a byte location
- * @param a_byteLocation    The byte location to generate the entry from
- * @return  A pointer to the generated entry
- */
+ * @brief   Generates an entry from a byte location
+ * @param a_ParentEntry  The parent entry
+ * @param a_byteLocation The byte location to generate the entry from
+ * @param depth          The depth of the entry
+ * @param a_ParentDeleted Whether or not the parent entry is deleted
+ * @return  The generated entry
+
+*/
 Entry * generateEntry(Entry * a_ParentEntry, byte_ptr a_byteLocation, size_t depth, bool a_ParentDeleted)
 {
     observeAndReport(a_byteLocation != NULL, "Error: a_byteLocation is null");
 
-    byte first_cluster_bigbyte = a_byteLocation + ENTRY_FIRST_CLUSTER_OFFSET2;
-    byte first_cluster_littlebyte = a_byteLocation + ENTRY_FIRST_CLUSTER_OFFSET1;
-    byte attributes = a_byteLocation + ENTRY_ATTRIBUTES_OFFSET;
+    byte_ptr first_cluster_bigbyte = a_byteLocation + ENTRY_FIRST_CLUSTER_OFFSET2;
+    byte_ptr first_cluster_littlebyte = a_byteLocation + ENTRY_FIRST_CLUSTER_OFFSET1;
+    byte attributes = ATTR_NULL | a_byteLocation[ENTRY_ATTRIBUTES_OFFSET];
+    printBinary(attributes, BITS_PER_BYTE, true);
 
     string formattedName = formatFileNaming(a_byteLocation, ENTRY_FILENAME_BYTES);
     string formattedExtension = formatFileNaming(a_byteLocation + ENTRY_EXTENSION_OFFSET, ENTRY_EXTENSION_BYTES);
 
-
     Entry * e = (Entry *)malloc(sizeof(Entry));
     observeAndReport(e != NULL, "Error allocating memory for entry");
-    e->attributes = ATTR_NULL;
-    e->filepath = malloc(sizeof(char));
-    e->filepath[0] = '/';
-    observeAndReport(e->filepath[0] == '/', "Error: i_EntryPtr->filepath is not '/'");
 
-    strncpy(e->filename, formattedName, ENTRY_FILENAME_BYTES);
-    strcat(e->filepath, e->filename);
+    e->attributes = attributes;
+    e->filepath = strdup(a_ParentEntry->filepath);
+    e->first_cluster = combineTwoBytes(first_cluster_bigbyte, first_cluster_littlebyte);
+    e->size = combineTwoBytes(a_byteLocation + ENTRY_FIRST_CLUSTER_OFFSET2, a_byteLocation + ENTRY_FIRST_CLUSTER_OFFSET1);
+    e->depth = depth;
+    e->deleted = a_ParentDeleted;
+    memset(e->filename, NULL_CHAR, ENTRY_FILENAME_BYTES);
+    memset(e->extension, ENTRY_NO_EXTENSION, ENTRY_EXTENSION_BYTES);
+    printBinary(e->attributes, BITS_PER_BYTE, true);
 
-    if (formattedExtension[0] != SPACE_CHAR)
+
+
+    if (formattedName == DOUBLE_DOT_CHAR) { return e; } //TODO: wtf do i put
+
+    // strcat(e->filepath, FORWARD_SLASH_STRING);
+
+    if (formattedName == DOT_CHAR)
     {
-        strncpy(e->extension, formattedExtension, ENTRY_EXTENSION_BYTES);
-        strcat(e->filepath, ".");
-        strcat(e->filepath, e->extension);
+        strcat(e->filepath, formattedName);
+        return e;
     }
 
-    e->attributes = a_byteLocation + ENTRY_ATTRIBUTES_OFFSET;
+    if (formattedName == ENTRY_FREE || formattedName == ENTRY_FREE_AND_LAST)
+    {
+        e->deleted = true;
+    }
 
-    e->first_cluster = combineTwoBytes(first_cluster_bigbyte, first_cluster_littlebyte);
+    strncpy(e->filename, formattedName, ENTRY_FILENAME_BYTES);
+    //e->filename = formattedName;
+    strcat(e->filepath, formattedName);
+    strncpy(e->extension, formattedExtension, ENTRY_EXTENSION_BYTES);
+
+    if (e->extension != ENTRY_NO_EXTENSION) {
+        strcat(e->filepath, ".");
+        strncat(e->filepath, e->extension, ENTRY_EXTENSION_BYTES);
+    }
 
     return e;
-
 }
 
 /**
@@ -524,23 +587,23 @@ Entry * generateEntry(Entry * a_ParentEntry, byte_ptr a_byteLocation, size_t dep
  * @param a_Entry       The entry to make the data for
  * @param a_pDiskSector The disk sector to make the data from
  */
-void makeData(Entry * a_Entry, byte * a_pDiskSector)
+void makeData(Entry * a_Entry, byte_ptr a_pDiskSector)
 {
     fprintf(stderr, "Making data\n");
     observeAndReport(a_Entry != NULL, "Error: a_Entry is null");
     observeAndReport(a_pDiskSector != NULL, "Error: a_pDiskSector is null");
 
     // Allocate memory for data
-    a_Entry->size = a_pDiskSector[28] | a_pDiskSector[29] << 8 | a_pDiskSector[30] << 16 | a_pDiskSector[31] << 24;
+    // a_Entry->size = a_pDiskSector[28] | a_pDiskSector[29] << 8 | a_pDiskSector[30] << 16 | a_pDiskSector[31] << 24;
     fprintf(stderr, "Allocated memory for data\n");
 
     // Allocate memory for data
-    a_Entry->data = (string)malloc(a_Entry->size);
+    a_Entry->data = (string)malloc(SECTOR_SIZE);
     observeAndReport(a_Entry->data != NULL, "Error allocating memory for data");
     fprintf(stderr, "Allocated memory for data\n");
 
     // Copy data
-    memcpy(a_Entry->data, a_pDiskSector, a_Entry->size);
+    memcpy(a_Entry->data, a_pDiskSector, SECTOR_SIZE);
     fprintf(stderr, "Copied data\n");
 }
 
@@ -570,17 +633,17 @@ bool isDirectory(const Entry * const e)
 
 bool printEntry(const Entry * e)
 {
-    printf("\tFilepath: %s\n", e->filepath);
-    printf("\tFilename: ");
-    for (int i = 0; i < 8; i++) printf("%c", e->filename[i]);
-    printf("\n\tExtension: ");
-    for (int i = 0; i < 3; i++) printf("%c", e->extension[i]);
-    printf("\n\tAttributes:  %#x\n", e->attributes);
-    printf("\tFirst Cluster: %#x\n", e->first_cluster);
-    printf("\tSize: %u\n", e->size);
-    printf("\tIs Directory: %s\n", isDirectory(e) ? "Yes" : "No");
-    printf("\tDate - Created: %u, Accessed: %u, Modified: %u\n",
+    fprintf(stderr, "\tFilepath: %s\n", e->filepath);
+    fprintf(stderr, "\tFilename: ");
+    for (int i = 0; i < 8; i++) fprintf(stderr, "%c", e->filename[i]);
+    fprintf(stderr, "\n\tExtension: ");
+    for (int i = 0; i < 3; i++) fprintf(stderr, "%c", e->extension[i]);
+    fprintf(stderr, "\n\tAttributes:  %#x\n", e->attributes);
+    fprintf(stderr, "\tFirst Cluster: %#x\n", e->first_cluster);
+    fprintf(stderr, "\tSize: %u\n", e->size);
+    fprintf(stderr, "\tIs Directory: %s\n", isDirectory(e) ? "Yes" : "No");
+    fprintf(stderr, "\tDate - Created: %u, Accessed: %u, Modified: %u\n",
         e->date.created, e->date.accessed, e->date.modified);
-    printf("\tTime - Created: %u, Accessed: %u, Modified: %u\n",
+    fprintf(stderr, "\tTime - Created: %u, Accessed: %u, Modified: %u\n",
         e->time.created, e->time.accessed, e->time.modified);
 }
