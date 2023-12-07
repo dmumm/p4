@@ -9,25 +9,84 @@
 #pragma region constants
 
 #define ZERO 0
+#define BITS_PER_BYTE 8
+#define BYTES_PER_SECTOR 512
 
-#define FAT_COUNT_OFFSET 16
+#define BOOT_SECTOR_START 0
+#define FAT1_SECTOR_START 1
+#define FAT2_SECTOR_START 10
+#define ROOT_SECTOR_START 19
+#define DATA_SECTOR_START 33
 
-#define RD_ENTRY_COUNT_OFFSET_LOW 17
-#define RD_ENTRY_COUNT_OFFSET_HIGH 18
+#define BOOT_SECTOR_LENGTH 1
+#define FAT_SECTOR_LENGTH 9
+#define ROOT_SECTOR_LENGTH 14
+#define DATA_SECTOR_LENGTH 2847
+
+#define CLUSTER_EMPTY 0x000
+#define CLUSTER_ROOT 0x000
+#define CLUSTER_NONEXISTENT 0x001
+#define CLUSTER_BAD 0xFF7
+
+#define CLUSTER_NORMAL_MIN 0x002
+#define CLUSTER_NORMAL_MAX 0xFF6
+
+#define CLUSTER_RESERVED_MIN 0xFF0
+#define CLUSTER_RESERVED_MAX 0xFF6
+
+#define CLUSTER_LAST_MIN 0xFF8
+#define CLUSTER_LAST_MAX 0xFFF
+
+#define BOOT_FAT_COUNT_OFFSET 16
+
+#define BOOT_RD_ENTRY_COUNT_OFFSET1 17
+#define BOOT_RD_ENTRY_COUNT_OFFSET2 18
+
+#define BOOT_SIGNATURE_OFFSET1 510
+#define BOOT_SIGNATURE_CONSTANT1 0x55
+#define BOOT_SIGNATURE_OFFSET2 511
+#define BOOT_SIGNATURE_CONSTANT2 0xAA
 
 // #define ROOT_OFFSET 0x2600
-#define ROOT_OFFSET 9728
 #define DATA_AREA_OFFSET 0x4000
 
 #define SECTOR_SIZE 512
 #define ENTRY_SIZE 32
 
 #define ENTRY_FILENAME_OFFSET 0
-#define ENTRY_FILENAME_LENGTH 8
+#define ENTRY_FILENAME_BYTES 8
 #define ENTRY_EXTENSION_OFFSET 8
-#define ENTRY_EXTENSION_LENGTH 3
+#define ENTRY_EXTENSION_BYTES 3
 #define ENTRY_ATTRIBUTES_OFFSET 11
+#define ENTRY_ATTRIBUTES_BYTES 1
+#define ENTRY_RESERVED_OFFSET 12
+#define ENTRY_RESERVED_BYTES 2
 
+#define ENTRY_TIME_CREATED_OFFSET 14
+#define ENTRY_DATE_CREATED_OFFSET 16
+#define ENTRY_LAST_ACCESSED_OFFSET 18
+#define ENTRY_TIME_MODIFIED_OFFSET 22
+#define ENTRY_DATE_MODIFIED_OFFSET 24
+#define ENTRY_DATETIME_BYTES 2
+
+#define ENTRY_FIRST_CLUSTER_OFFSET1 26
+#define ENTRY_FIRST_CLUSTER_OFFSET2 27
+#define ENTRY_FIRST_CLUSTER_BYTES 2
+#define ENTRY_SIZE_OFFSET 28
+#define ENTRY_SIZE_BYTES 4
+
+#define ENTRY_FREE 0xE5
+#define ENTRY_FREE_AND_LAST 0x00
+#define ENTRY_NO_EXTENSION '\0'
+
+#define FILENAME_ENDED 0x00
+
+#define SPACE 0x20
+
+#define DIR_HANDLE_OFFSET 64 //TODO: figure out what this is
+#define DATA_SEC_OFFSET 33 //TODO: figure out what this is
+
+#define ATTR_NULL        0x00  // Binary: 00000000
 #define ATTR_READ_ONLY   0x01  // Binary: 00000001
 #define ATTR_HIDDEN      0x02  // Binary: 00000010
 #define ATTR_SYSTEM      0x04  // Binary: 00000100
@@ -35,7 +94,6 @@
 #define ATTR_DIRECTORY   0x10  // Binary: 00010000
 #define ATTR_ARCHIVE     0x20  // Binary: 00100000
 
-#define BITS_PER_BYTE 8
 
 #pragma endregion
 
@@ -45,6 +103,9 @@ typedef uint8_t byte;
 
 typedef enum { false, true } bool;
 typedef char * string;
+typedef sector sector[512];
+typedef uint16_t fat_entry;
+
 
 typedef struct TimeStamp {
     uint16_t created;
@@ -57,18 +118,14 @@ typedef struct Entry {
     byte  filename[8];
     byte  extension[3];
     byte  attributes;
-    byte  reserved[10];
-    uint16_t first_cluster;
+    // byte  reserved[10];
+    size_t depth;
+    fat_entry first_cluster;
     uint32_t size;
-    bool     is_directory;
     TimeStamp date;
     TimeStamp time;
+    string data;
 } Entry;
-
-typedef struct Directory {
-    Entry * head;
-    Entry * tail;
-} Directory;
 
 typedef struct BootSector {
     size_t n_Fats;
@@ -80,7 +137,7 @@ typedef struct BootSector {
 typedef struct DiskImage {
     BootSector * p_BootSector;
     byte ** p_FatTables;
-    Directory * p_Root;
+    byte * p_Root;
     byte * p_DataArea;
     size_t bytes;
 } DiskImage;
@@ -88,9 +145,12 @@ typedef struct DiskImage {
 #pragma endregion
 
 #pragma region globals
+
+
+
 // Directory * g_pD_Root;
-byte * g_pB_Data;
-DiskImage * g_pD_DiskImage;
+string g_ImageData;
+DiskImage * g_Disk;
 #pragma endregion
 
 #pragma region prototypes
@@ -101,20 +161,23 @@ bool printBinary(uint64_t a_Number, size_t bits, bool use_Prefix);
 bool printEntry(const Entry * e);
 void printData(byte * a_pB_Data, size_t a_n_Length);
 
+int readSector(int fd, size_t a_sector, sector * buffer);
+fat_entry get_fat_entry(sector * fat_sector, size_t entry_number);
+
 string formatFileNaming(byte * a_pB_Data, size_t a_Length);
 
 byte * openFile(char * a_Filename);
 byte * getBootSector(byte * a_pB_Data);
-void locateAndParseRootDirectory(byte * a_pB_Data);
-Entry * generateEntry(byte * a_byteLocation);
-void handleDirectory(Entry * a_directoryEntry, byte * a_sector);
+void parseFileSystem(byte * a_pB_Data);
+const void handleDirectory(Entry * a_ParentEntry, byte * a_sector, size_t depth);
+void makeData(Entry * a_Entry, byte * a_pDiskSector);
 
-bool isReadOnly(Entry * e);
-bool isHidden(Entry * e);
-bool isSystem(Entry * e);
-bool isVolumeLabel(Entry * e);
-bool isDirectory(Entry * e);
-bool isArchive(Entry * e);
+bool isReadOnly(const Entry * const e);
+bool isHidden(const Entry * const e);
+bool isSystem(const Entry * const e);
+bool isVolumeLabel(const Entry * const e);
+bool isDirectory(const Entry * const e);
+bool isArchive(const Entry * const e);
 #pragma endregion
 
 #pragma region main
@@ -135,28 +198,15 @@ int main(int argc, char * argv[])
     fprintf(stderr, "Image file: %s\n", pc_ImagePath);
     fprintf(stderr, "Output directory: %s\n", pc_OutputDirectoryName);
 
-    // Allocate memory for disk
-    g_pD_DiskImage = (DiskImage *)malloc(sizeof(DiskImage));
-    observeAndReport(g_pD_DiskImage != NULL, "DiskImage is null");
-    fprintf(stderr, "Allocated memory for disk\n");
+    g_Disk = (DiskImage *)malloc(sizeof(DiskImage));
+    observeAndReport(g_Disk != NULL, "DiskImage is null");
 
-    // Allocate memory for directory
-    g_pD_DiskImage->p_Root = (Directory *)malloc(sizeof(Directory));
-    observeAndReport(g_pD_DiskImage->p_Root != NULL, "p_Root is null");
-    fprintf(stderr, "Allocated memory for directory\n");
+    g_Disk->p_Root = (byte *)malloc(sizeof(byte));
+    observeAndReport(g_Disk->p_Root != NULL, "p_Root is null");
 
-    // Open image file
-    g_pB_Data = openFile(pc_ImagePath);
-    fprintf(stderr, "Opened image file\n");
+    g_ImageData = openFile(pc_ImagePath);
 
-
-    // Get boot sector
-    getBootSector(g_pB_Data);
-    fprintf(stderr, "Got boot sector\n");
-
-
-    // Parse file system
-    locateAndParseRootDirectory(g_pB_Data);
+    parseFileSystem(g_ImageData);
 
     // // Output
     // printDirectory(g_pD_Root->head);
@@ -189,16 +239,17 @@ void observeAndReport(bool a_Condition, string a_Message)
 */
 bool testPointer(byte * ptr, size_t length)
 {
-    if (ptr == NULL)
-    {
+    if (ptr == NULL) {
         printf("Pointer is NULL\n");
         return 0;
     }
     printf("Pointer is not NULL, testing access...\n");
-    for (size_t i = 0; i < length; ++i) {
+
+    for (size_t i = 0; i < length; ++i)
+    {
         printf("byte %zu: 0x%02x\n", i, ptr[i]);
     }
-    return 1;
+    return true;
 }
 
 /**
@@ -211,18 +262,18 @@ byte * openFile(char * a_Filename)
     FILE * pF_Input = fopen(a_Filename, "rb");
     observeAndReport(pF_Input != NULL, "Error opening file");
 
-    fseek(pF_Input, 0, SEEK_END);
+    fseek(pF_Input, ZERO, SEEK_END);
     long l_FileSize = ftell(pF_Input);
     rewind(pF_Input);
 
     byte * pData = (byte *)malloc(l_FileSize);
     observeAndReport(pData != NULL, "Error allocating memory for file");
 
-    size_t readSize = fread(pData, 1, l_FileSize, pF_Input);
+    size_t readSize = fread(pData, 1, l_FileSize, pF_Input); //TODO: magic number
     observeAndReport(readSize == l_FileSize, "Error reading file");
     fprintf(stderr, "Read file of size %zu\n", readSize);
 
-    g_pD_DiskImage->bytes = readSize;
+    g_Disk->bytes = readSize;
 
     fclose(pF_Input);
     return pData;
@@ -238,85 +289,9 @@ void printData(byte * a_pB_Data, size_t a_n_Length)
     for (size_t i = 0; i < a_n_Length; i++)
     {
         printf("%02X ", a_pB_Data[i]);
-        if (i % 16 == 15) printf("\n");
+        if (i % 16 == 15) printf("\n"); // Print a new line every 16 bytes //TODO: magic number
     }
     printf("\n");
-}
-
-
-#pragma endregion
-
-
-
-/**
- * @brief   Gets the boot sector from the data
- * @param a_pB_Data The data to get the boot sector from
- * @return  A pointer to the boot sector
- */
-byte * getBootSector(byte * a_pB_Data)
-{
-    g_pD_DiskImage->p_BootSector = (BootSector *)malloc(sizeof(BootSector));
-    observeAndReport(g_pD_DiskImage->p_BootSector != NULL, "Error allocating memory for boot sector");
-    fprintf(stderr, "Allocated memory for boot sector\n");
-
-    byte fatCountbyte = a_pB_Data[FAT_COUNT_OFFSET];
-    g_pD_DiskImage->p_BootSector->n_Fats = fatCountbyte;
-    printf("FAT count: %zu\n", g_pD_DiskImage->p_BootSector->n_Fats);
-
-    // Read the high and low bytes of the root directory count
-    // Combine the high and low bytes to form the full count
-    // Shift the high byte by 8 bits to the left and then combine it with the low byte
-    byte rdCountHigh = a_pB_Data[RD_ENTRY_COUNT_OFFSET_HIGH];
-    byte rdCountLow = a_pB_Data[RD_ENTRY_COUNT_OFFSET_LOW];
-    g_pD_DiskImage->p_BootSector->n_RootEntries = (rdCountHigh << 8) | rdCountLow;
-    printf("Root directory entry count: %zu\n", g_pD_DiskImage->p_BootSector->n_RootEntries);
-
-    // Validate boot sector
-    // assert(pB_BootSector[510] == 0x55 && pB_BootSector[511] == 0xAA && "Invalid boot sector");
-    return g_pD_DiskImage->p_BootSector;
-}
-
-/**
- * @brief   Locates and parses the root directory
- * @param a_pB_Data The data to parse
- */
-void locateAndParseRootDirectory(byte * a_pB_Data)
-{
-    g_pD_DiskImage->p_Root->head = a_pB_Data + ROOT_OFFSET;
-    byte * p_Root = g_pD_DiskImage->p_Root->head;
-    fprintf(stderr, "Located root directory\n");
-
-    byte * i_Offset = p_Root;
-    while (i_Offset != 0x00)
-    {
-        Entry * i_EntryPtr = generateEntry(i_Offset);
-        observeAndReport(i_EntryPtr != NULL, "Error generating entry");
-        fprintf(stderr, "Generated new entry\n");
-        printEntry(i_EntryPtr);
-
-
-        // Get first data sector
-        uint16_t first_data_sector_offset = (DATA_AREA_OFFSET + i_EntryPtr->first_cluster - 2);
-        byte * dataSec = a_pB_Data + (first_data_sector_offset * SECTOR_SIZE);
-        fprintf(stderr, "Got first data sector\n");
-
-        // Detect if i_EntryPtr is a directory
-        if (i_EntryPtr->is_directory)
-        {
-            // handle directory
-            handleDirectory(i_EntryPtr, dataSec);
-        }
-        else
-        {
-            // handle file
-            strcat(i_EntryPtr->filepath, ".");
-            strcat(i_EntryPtr->filepath, i_EntryPtr->extension);
-
-            // // Get data
-            // makeData(e, dataSec); //TODO
-        }
-        i_Offset += ENTRY_SIZE;
-    }
 }
 
 /**
@@ -328,32 +303,141 @@ void locateAndParseRootDirectory(byte * a_pB_Data)
 string formatFileNaming(byte * a_byteLocation, size_t a_Length)
 {
     observeAndReport(a_byteLocation != NULL, "Error: a_byteLocation is null");
-    fprintf(stderr, "a_Length: %zu\n", a_Length);
-    observeAndReport(a_Length == ENTRY_FILENAME_LENGTH || a_Length == ENTRY_EXTENSION_LENGTH, "Error: a_Length is not 8 or 3");
-    fprintf(stderr, "Formatting file name\n");
+    observeAndReport(a_Length == ENTRY_FILENAME_BYTES || a_Length == ENTRY_EXTENSION_BYTES, "Error: a_Length is not 8 or 3");
+
     string formatted = (string)malloc(a_Length);
     observeAndReport(formatted != NULL, "Error allocating memory for formatted file name");
-    fprintf(stderr, "Allocated memory for formatted file name\n");
+
     size_t i;
     for (i = 0; i < a_Length; i++)
     {
-        fprintf(stderr, "i: %zu\n", i);
-        if (a_byteLocation[i] != 0x00)
-        {
-            formatted[i] = toupper((unsigned char)a_byteLocation[i]);
-        }
-        else
-        {
-            break;
-        }
+        if (a_byteLocation[i] == FILENAME_ENDED) { break; }
+        formatted[i] = toupper(a_byteLocation[i]); // might be trouble, was (unsigned char)
     }
 
-    // Pad with spaces if necessary
-    for (; i < a_Length; i++) {
-        formatted[i] = 0x20;
+    // Pad with spaces if i < a_Length
+    for (; i < a_Length; i++)
+    {
+        formatted[i] = SPACE;
     }
-    fprintf(stderr, "Formatted file name\n");
+
     return formatted;
+}
+
+#pragma endregion
+
+/**
+ * Combines a big byte and a little byte to form a 16-bit integer.
+ *
+ * @param bigByte The big byte (bigger 8 bits).
+ * @param littleByte The little byte (littleer 8 bits).
+ * @return The combined 16-bit integer.
+ */
+uint16_t combineTwoBytes(byte bigByte, byte littleByte)
+{
+    return (uint16_t)(bigByte << 8) | littleByte;
+}
+
+/**
+ * @brief   Gets the boot sector from the data
+ * @param a_pB_Data The data to get the boot sector from
+ * @return  A pointer to the boot sector
+ */
+byte * getBootSector(byte * a_pB_Data)
+{
+    bool check1 = a_pB_Data[BOOT_SIGNATURE_OFFSET1] == BOOT_SIGNATURE_CONSTANT1;
+    bool check2 = a_pB_Data[BOOT_SIGNATURE_OFFSET2] == BOOT_SIGNATURE_CONSTANT2;
+    observeAndReport(check1, "Error: Boot Signature Byte 1 is not 0x55");
+    observeAndReport(check2, "Error: Boot Signature Byte 2 is not 0xAA");
+
+    byte const fatCountbyte = a_pB_Data[BOOT_FAT_COUNT_OFFSET];
+    byte const rdCountBigDigits = a_pB_Data[BOOT_RD_ENTRY_COUNT_OFFSET2];
+    byte const rdCountLittleDigits = a_pB_Data[BOOT_RD_ENTRY_COUNT_OFFSET1];
+    byte const rdCount = combineTwoBytes(rdCountBigDigits, rdCountLittleDigits);
+
+
+    g_Disk->p_BootSector = (BootSector *)malloc(sizeof(BootSector));
+    observeAndReport(g_Disk->p_BootSector != NULL, "Error allocating memory for boot sector");
+
+    g_Disk->p_BootSector->n_Fats = fatCountbyte;
+    g_Disk->p_BootSector->n_RootEntries = rdCount;
+
+    return g_Disk->p_BootSector;
+}
+
+/**
+ * @brief   Locates and parses the root directory's entries
+ * @param a_pB_Data The data to parse`
+ */
+void parseFileSystem(byte * a_pB_Data)
+{
+    byte const root_offset = ROOT_SECTOR_START * SECTOR_SIZE;
+    size_t depth = ZERO;
+
+
+    getBootSector(g_ImageData);
+    observeAndReport(g_Disk->p_BootSector != NULL, "Error: g_Disk->p_BootSector is null");
+
+    g_Disk->p_Root = a_pB_Data + root_offset;
+
+    byte * i_pEntry = g_Disk->p_Root;
+    while (i_pEntry != ENTRY_FREE_AND_LAST)
+    {
+        Entry * i_EntryPtr = generateEntry(i_pEntry, i_pEntry, depth);
+        observeAndReport(i_EntryPtr != NULL, "Error generating entry");
+        printEntry(i_EntryPtr);
+
+        strcat(i_EntryPtr->filepath, ".");
+        strcat(i_EntryPtr->filepath, i_EntryPtr->extension);
+
+        uint16_t first_data_sector_offset = (DATA_AREA_OFFSET + i_EntryPtr->first_cluster - 2);
+        byte * dataSec = a_pB_Data + (first_data_sector_offset * SECTOR_SIZE);
+
+        // Detect if i_EntryPtr is a directory
+        if (isDirectory(i_EntryPtr))
+        {
+            handleDirectory(i_EntryPtr, dataSec, depth);
+            i_pEntry += ENTRY_SIZE;
+            continue;
+        }
+
+        makeData(i_EntryPtr, dataSec);
+        i_pEntry += ENTRY_SIZE;
+    }
+}
+
+
+
+
+/**
+ * @brief   Handles a directory
+ * @param a_ParentEntry  The directory entry to handle
+ * @param a_sector           The sector to handle
+ */
+void handleDirectory(Entry * a_ParentEntry, byte * a_pDiskSector, size_t depth)
+{
+    //TODO: this just goes back to the root directory, need to fix
+    uint8_t * i_pEntry = a_pDiskSector + DIR_HANDLE_OFFSET;
+    depth++;
+
+    while (*i_pEntry != ENTRY_FREE_AND_LAST)
+    {
+        Entry * i_childEntry = generateEntry(a_ParentEntry, i_pEntry, depth);
+        strcat(i_childEntry->filepath, a_ParentEntry->filepath);
+
+        uint8_t a_pDiskSector = DATA_SEC_OFFSET + i_childEntry->first_cluster - 2;
+        byte * newSec = g_ImageData + (a_pDiskSector * SECTOR_SIZE);
+
+        if (isDirectory(i_childEntry))
+        {
+            handleDirectory(i_childEntry, newSec, depth);
+            i_pEntry += ENTRY_SIZE;
+            continue;
+        }
+
+        makeData(i_childEntry, newSec);
+        i_pEntry += ENTRY_SIZE;
+    }
 }
 
 /**
@@ -361,93 +445,67 @@ string formatFileNaming(byte * a_byteLocation, size_t a_Length)
  * @param a_byteLocation    The byte location to generate the entry from
  * @return  A pointer to the generated entry
  */
-Entry * generateEntry(byte * a_byteLocation)
+Entry * generateEntry(Entry * a_ParentEntry, byte * a_byteLocation, size_t depth)
 {
-    fprintf(stderr, "Generating entry\n");
     observeAndReport(a_byteLocation != NULL, "Error: a_byteLocation is null");
 
-    // Allocate memory for entry
+    byte first_cluster_bigbyte = a_byteLocation + ENTRY_FIRST_CLUSTER_OFFSET2;
+    byte first_cluster_littlebyte = a_byteLocation + ENTRY_FIRST_CLUSTER_OFFSET1;
+    byte attributes = a_byteLocation + ENTRY_ATTRIBUTES_OFFSET;
+
+    string formattedName = formatFileNaming(a_byteLocation, ENTRY_FILENAME_BYTES);
+    string formattedExtension = formatFileNaming(a_byteLocation + ENTRY_EXTENSION_OFFSET, ENTRY_EXTENSION_BYTES);
+
+
     Entry * e = (Entry *)malloc(sizeof(Entry));
     observeAndReport(e != NULL, "Error allocating memory for entry");
-    e->is_directory = false;
-
-    // Get filename
-    string formattedName = formatFileNaming(a_byteLocation, ENTRY_FILENAME_LENGTH);
-    strncpy(e->filename, formattedName, ENTRY_FILENAME_LENGTH);
-
-    // Get filepath
+    e->attributes = ATTR_NULL;
     e->filepath = malloc(sizeof(char));
     e->filepath[0] = '/';
     observeAndReport(e->filepath[0] == '/', "Error: i_EntryPtr->filepath is not '/'");
+
+    strncpy(e->filename, formattedName, ENTRY_FILENAME_BYTES);
     strcat(e->filepath, e->filename);
 
-    // Get extension
-    string formattedExtension = formatFileNaming(a_byteLocation + ENTRY_EXTENSION_OFFSET, ENTRY_EXTENSION_LENGTH);
-    strncpy(e->extension, formattedExtension, ENTRY_EXTENSION_LENGTH);
-    fprintf(stderr, "Got extension, '%s'\n", e->extension);
-    strcat(e->filepath, ".");
-    strcat(e->filepath, e->extension);
+    if (formattedExtension[0] != SPACE)
+    {
+        strncpy(e->extension, formattedExtension, ENTRY_EXTENSION_BYTES);
+        strcat(e->filepath, ".");
+        strcat(e->filepath, e->extension);
+    }
 
-
-    // Get attributes
     e->attributes = a_byteLocation + ENTRY_ATTRIBUTES_OFFSET;
-    fprintf(stderr, "Got attributes, '%#x'\n", e->attributes);
-    printBinary(e->attributes, 8, true);
 
-
-    if (isDirectory(e)) e->is_directory = true;
-
-    // Get first cluster
-    e->first_cluster = a_byteLocation[26] | a_byteLocation[27] << 8;
+    e->first_cluster = combineTwoBytes(first_cluster_bigbyte, first_cluster_littlebyte);
 
     return e;
 
 }
 
 /**
- * @brief   Handles a directory
- * @param a_directoryEntry  The directory entry to handle
- * @param a_sector           The sector to handle
+ * @brief   Makes the data for a file
+ * @param a_Entry       The entry to make the data for
+ * @param a_pDiskSector The disk sector to make the data from
  */
-void handleDirectory(Entry * a_directoryEntry, byte * a_pDiskSector)
+void makeData(Entry * a_Entry, byte * a_pDiskSector)
 {
-    // setup //TODO: this just goes back to the root directory, need to fix
-    uint8_t * first = a_pDiskSector + DIR_HANDLE_OFFSET;
+    fprintf(stderr, "Making data\n");
+    observeAndReport(a_Entry != NULL, "Error: a_Entry is null");
+    observeAndReport(a_pDiskSector != NULL, "Error: a_pDiskSector is null");
 
-    // treat the first entry as if it is a root directory
-    while (*first != 0x00) {
-        // Get entry in root directory
-        Entry * newEntry = makeDirectory(first);
-        strcat(newEntry->filepath, entry->filepath);
-        strcat(newEntry->filepath, "/");
-        strcat(newEntry->filepath, newEntry->name);
+    // Allocate memory for data
+    a_Entry->size = a_pDiskSector[28] | a_pDiskSector[29] << 8 | a_pDiskSector[30] << 16 | a_pDiskSector[31] << 24;
+    fprintf(stderr, "Allocated memory for data\n");
 
-        // Check if entry is a directory
-        if (newEntry->directory == 1) {
-            // Get first data sector
-            uint8_t a_pDiskSector = (DATA_SEC_OFFSET + newEntry->firstLCluster - 2);
-            uint8_t * newSec = fData + (a_pDiskSector * SECTOR_SIZE);
+    // Allocate memory for data
+    a_Entry->data = (string)malloc(a_Entry->size);
+    observeAndReport(a_Entry->data != NULL, "Error allocating memory for data");
+    fprintf(stderr, "Allocated memory for data\n");
 
-            // handle directory
-            handleDirectory(newEntry, newSec);
-        }
-        else {
-            // handle file ext
-            strcat(newEntry->filepath, ".");
-            strcat(newEntry->filepath, newEntry->ext);
-
-            // Get data sector
-            uint8_t a_pDiskSector = DATA_SEC_OFFSET + newEntry->firstLCluster - 2;
-            uint8_t * newSec = fData + (a_pDiskSector * SECTOR_SIZE);
-
-            makeData(newEntry, newSec);
-        }
-
-        // Iterate
-        first += ENTRY_SIZE;
-    }
+    // Copy data
+    memcpy(a_Entry->data, a_pDiskSector, a_Entry->size);
+    fprintf(stderr, "Copied data\n");
 }
-
 
 bool printBinary(uint64_t a_Number, size_t bits, bool use_Prefix)
 {
@@ -466,13 +524,15 @@ bool printBinary(uint64_t a_Number, size_t bits, bool use_Prefix)
     return true;
 }
 
-bool isDirectory(Entry * e) {
+bool isDirectory(const Entry * const e)
+{
     observeAndReport(e != NULL, "Error: e is null, cannot check if directory");
     uint8_t result = (e->attributes & ATTR_DIRECTORY);
     return (result > 0);
 }
 
-bool printEntry(const Entry * e) {
+bool printEntry(const Entry * e)
+{
     printf("\tFilepath: %s\n", e->filepath);
     printf("\tFilename: ");
     for (int i = 0; i < 8; i++) printf("%c", e->filename[i]);
@@ -481,9 +541,9 @@ bool printEntry(const Entry * e) {
     printf("\n\tAttributes:  %#x\n", e->attributes);
     printf("\tFirst Cluster: %#x\n", e->first_cluster);
     printf("\tSize: %u\n", e->size);
-    printf("\tIs Directory: %s\n", e->is_directory ? "Yes" : "No");
+    printf("\tIs Directory: %s\n", isDirectory(e) ? "Yes" : "No");
     printf("\tDate - Created: %u, Accessed: %u, Modified: %u\n",
-           e->date.created, e->date.accessed, e->date.modified);
+        e->date.created, e->date.accessed, e->date.modified);
     printf("\tTime - Created: %u, Accessed: %u, Modified: %u\n",
-           e->time.created, e->time.accessed, e->time.modified);
+        e->time.created, e->time.accessed, e->time.modified);
 }
