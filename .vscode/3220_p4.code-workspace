@@ -18,7 +18,16 @@
             "system_error": "c",
             "sstream": "c",
             "type_traits": "c",
-            "cstdlib": "c"
+            "cstdlib": "c",
+            "tuple": "c",
+            "cstddef": "c",
+            "chrono": "c",
+            "compare": "c",
+            "functional": "c",
+            "istream": "c",
+            "ostream": "c",
+            "ratio": "c",
+            "string": "c"
         },
         "makefile.launchConfigurations": [
             {
